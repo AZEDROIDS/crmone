@@ -1,32 +1,44 @@
-FROM node:20-alpine AS deps
-RUN apk add --no-cache libc6-compat
+# syntax = docker/dockerfile:1
+ARG NODE_VERSION=22.21.1
+FROM node:${NODE_VERSION}-slim AS base
+LABEL fly_launch_runtime="Next.js"
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci
+ENV NODE_ENV="production"
 
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+# ── Build stage ──────────────────────────────────────────────────
+FROM base AS build
+RUN apt-get update -qq && \
+    apt-get install --no-install-recommends -y \
+    build-essential node-gyp pkg-config python-is-python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json* ./
+RUN npm install
+
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=production
 ENV SKIP_ENV_VALIDATION=1
 RUN npm run build
 
-FROM node:20-alpine AS runner
+# ── Runner stage ─────────────────────────────────────────────────
+FROM base AS runner
 WORKDIR /app
-ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
-COPY --from=builder /app/public                              ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static     ./.next/static
-COPY --from=builder /app/db                                  ./db
-COPY --from=builder /app/node_modules                        ./node_modules
-COPY --from=builder /app/package.json                        ./package.json
-COPY --from=builder /app/drizzle.config.ts                   ./drizzle.config.ts
-USER nextjs
-EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
-CMD ["sh", "-c", "npx drizzle-kit migrate && node server.js"]
+
+RUN addgroup --system --gid 1001 nodejs \
+ && adduser  --system --uid 1001 nextjs
+
+COPY --from=build /app/public                                ./public
+COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=build --chown=nextjs:nodejs /app/.next/static     ./.next/static
+
+# Fichiers nécessaires pour les migrations et le seed
+COPY --from=build /app/db                    ./db
+COPY --from=build /app/drizzle.config.ts     ./drizzle.config.ts
+COPY --from=build /app/node_modules          ./node_modules
+
+USER nextjs
+EXPOSE 3000
+CMD ["node", "server.js"]

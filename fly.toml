@@ -1,12 +1,12 @@
-app = "esn-manager"
-primary_region = "cdg"   # Paris — le plus proche pour une ESN française
+app = "crmone"
+primary_region = "cdg"
 
 [build]
 
 [env]
-  NODE_ENV      = "production"
-  PORT          = "3000"
-  HOSTNAME      = "0.0.0.0"
+  NODE_ENV = "production"
+  PORT     = "3000"
+  HOSTNAME = "0.0.0.0"
 
 [http_service]
   internal_port       = 3000
@@ -21,16 +21,16 @@ primary_region = "cdg"   # Paris — le plus proche pour une ESN française
     soft_limit = 20
 
 [[vm]]
-  memory = "512mb"
+  memory   = "512mb"
   cpu_kind = "shared"
-  cpus = 1
+  cpus     = 1
 
 [checks]
   [checks.health]
-    grace_period  = "10s"
-    interval      = "30s"
-    method        = "GET"
-    path          = "/api/health"
-    port          = 3000
-    timeout       = "5s"
-    type          = "http"
+    grace_period = "10s"
+    interval     = "30s"
+    method       = "GET"
+    path         = "/api/health"
+    port         = 3000
+    timeout      = "5s"
+    type         = "http"
