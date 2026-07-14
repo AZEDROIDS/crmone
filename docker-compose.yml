@@ -1,0 +1,50 @@
+version: "3.9"
+
+services:
+  # PostgreSQL local (alternative à Neon pour le dev offline)
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER:     esn_user
+      POSTGRES_PASSWORD: esn_password
+      POSTGRES_DB:       esn_manager
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U esn_user -d esn_manager"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Mailpit — serveur SMTP local pour tester les emails
+  mail:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Interface web → http://localhost:8025
+    environment:
+      MP_MAX_MESSAGES: 200
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+
+volumes:
+  pgdata:
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Usage :
+#   docker compose up -d           # Démarrer les services
+#   docker compose down            # Arrêter
+#   docker compose logs -f db      # Logs PostgreSQL
+#
+# Pour utiliser la DB locale au lieu de Neon, dans .env.local :
+#   DATABASE_URL=postgresql://esn_user:esn_password@localhost:5432/esn_manager
+#
+# Pour les emails locaux (Mailpit), dans .env.local :
+#   RESEND_API_KEY=dummy
+#   EMAIL_FROM=noreply@localhost
+# Et configurer Resend en mode "test" ou utiliser nodemailer+SMTP localhost:1025
+# ─────────────────────────────────────────────────────────────────────────────
