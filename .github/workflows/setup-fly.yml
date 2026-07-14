@@ -1,117 +1,82 @@
-name: 🚀 Setup & Deploy — Fly.io
+name: Setup & Deploy Fly.io
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       seed:
-        description: "Créer les données de démonstration ?"
-        required: true
-        default: "oui"
-        type: choice
-        options: ["oui", "non"]
+        description: "Seed demo data?"
+        required: false
+        default: "yes"
       resend_api_key:
-        description: "Clé Resend pour les emails (optionnel)"
+        description: "Resend API key (optional)"
         required: false
         default: ""
-      email_from:
-        description: "Adresse email expéditeur (ex: noreply@mondomaine.fr)"
-        required: false
-        default: "ESN Manager <noreply@esn-manager.fly.dev>"
 
 env:
-  APP_NAME:  esn-manager
-  DB_NAME:   esn-manager-db
-  REGION:    lhr
+  APP_NAME: crmone
+  DB_NAME:  crmone-db
+  REGION:   lhr
   FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
 jobs:
   setup-and-deploy:
-    name: Setup complet Fly.io
+    name: Setup & Deploy
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
-      # ── 1. Checkout ────────────────────────────────────────────
-      - name: 📥 Checkout du code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 2. Installer flyctl ────────────────────────────────────
-      - name: 🛠️ Installer flyctl
+      - name: Install flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
 
-      # ── 3. Vérifier le token ───────────────────────────────────
-      - name: 🔑 Vérifier l'authentification
-        run: |
-          echo "Connecté en tant que :"
-          flyctl auth whoami
+      - name: Verify auth
+        run: flyctl auth whoami
 
-      # ── 4. Créer l'application ─────────────────────────────────
-      - name: 📦 Créer l'application Fly.io
+      - name: Create Fly app (if not exists)
         run: |
-          if flyctl apps list | grep -q "^${{ env.APP_NAME }}"; then
-            echo "⚠️ App '${{ env.APP_NAME }}' déjà existante — on continue"
-          else
-            flyctl apps create ${{ env.APP_NAME }} --org personal
-            echo "✅ App '${{ env.APP_NAME }}' créée (région ${{ env.REGION }})"
-          fi
+          flyctl apps list | grep -q "^${{ env.APP_NAME }}" \
+            && echo "App exists" \
+            || flyctl apps create ${{ env.APP_NAME }} --org personal
 
-      # ── 5. Créer PostgreSQL ────────────────────────────────────
-      - name: 🗄️ Créer la base PostgreSQL
+      - name: Create PostgreSQL (if not exists)
         run: |
-          if flyctl postgres list | grep -q "${{ env.DB_NAME }}"; then
-            echo "⚠️ Base '${{ env.DB_NAME }}' déjà existante — on continue"
-          else
-            flyctl postgres create \
-              --name ${{ env.DB_NAME }} \
-              --region ${{ env.REGION }} \
-              --vm-size shared-cpu-1x \
-              --volume-size 3 \
-              --initial-cluster-size 1 \
-              --yes
-            echo "✅ Base PostgreSQL créée"
-          fi
+          flyctl postgres list | grep -q "${{ env.DB_NAME }}" \
+            && echo "DB exists" \
+            || flyctl postgres create \
+                --name ${{ env.DB_NAME }} \
+                --region ${{ env.REGION }} \
+                --vm-size shared-cpu-1x \
+                --volume-size 3 \
+                --initial-cluster-size 1 \
+                --yes
 
-      # ── 6. Attacher la DB ──────────────────────────────────────
-      - name: 🔗 Attacher PostgreSQL à l'application
+      - name: Attach PostgreSQL
         run: |
           flyctl postgres attach ${{ env.DB_NAME }} \
             --app ${{ env.APP_NAME }} 2>/dev/null \
-            && echo "✅ Base attachée (DATABASE_URL configurée)" \
-            || echo "⚠️ Déjà attachée — on continue"
+            || echo "Already attached"
 
-      # ── 7. Configurer les secrets ──────────────────────────────
-      - name: 🔐 Configurer les secrets
+      - name: Set secrets
         run: |
-          AUTH_SECRET=$(openssl rand -base64 32)
-          APP_URL="https://${{ env.APP_NAME }}.fly.dev"
-
           flyctl secrets set \
-            AUTH_SECRET="$AUTH_SECRET" \
-            NEXT_PUBLIC_APP_URL="$APP_URL" \
-            NEXTAUTH_URL="$APP_URL" \
+            AUTH_SECRET="$(openssl rand -base64 32)" \
+            NEXT_PUBLIC_APP_URL="https://${{ env.APP_NAME }}.fly.dev" \
+            NEXTAUTH_URL="https://${{ env.APP_NAME }}.fly.dev" \
             NODE_ENV="production" \
-            --app ${{ env.APP_NAME }} \
-            --stage
+            --app ${{ env.APP_NAME }}
 
-          echo "✅ Secrets de base configurés"
-
-      # ── 8. Secrets email (optionnel) ───────────────────────────
-      - name: 📧 Configurer Resend (email)
+      - name: Set Resend secret (if provided)
         if: ${{ inputs.resend_api_key != '' }}
         run: |
           flyctl secrets set \
             RESEND_API_KEY="${{ inputs.resend_api_key }}" \
             EMAIL_FROM="${{ inputs.email_from }}" \
-            --app ${{ env.APP_NAME }} \
-            --stage
-          echo "✅ Clé Resend configurée"
+            --app ${{ env.APP_NAME }}
 
-      - name: ⚠️ Avertissement email non configuré
-        if: ${{ inputs.resend_api_key == '' }}
-        run: echo "⚠️ RESEND_API_KEY non fournie — les emails seront désactivés. Vous pourrez l'ajouter plus tard via : flyctl secrets set RESEND_API_KEY=re_xxx --app ${{ env.APP_NAME }}"
-
-      # ── 9. Build et déploiement ────────────────────────────────
-      - name: 🚀 Build et déploiement (3-5 min)
+      - name: Deploy
         run: |
           flyctl deploy \
             --app ${{ env.APP_NAME }} \
@@ -119,48 +84,21 @@ jobs:
             --strategy rolling \
             --wait-timeout 300 \
             --remote-only
-          echo "✅ Application déployée"
 
-      # ── 10. Migrations DB ──────────────────────────────────────
-      - name: 🗃️ Migrations de base de données
+      - name: Run DB migrations
         run: |
           flyctl ssh console \
             --app ${{ env.APP_NAME }} \
             --command "cd /app && npx drizzle-kit migrate --config drizzle.config.ts"
-          echo "✅ Migrations appliquées"
 
-      # ── 11. Seed données de démo ───────────────────────────────
-      - name: 🌱 Données de démonstration
-        if: ${{ inputs.seed == 'oui' }}
+      - name: Seed demo data
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.seed == 'yes' }}
         run: |
           flyctl ssh console \
             --app ${{ env.APP_NAME }} \
             --command "cd /app && npx tsx db/seed.ts"
-          echo "✅ Données de démonstration créées"
 
-      # ── 12. Résumé ─────────────────────────────────────────────
-      - name: 🎉 Résumé du déploiement
+      - name: Summary
         run: |
-          APP_URL="https://${{ env.APP_NAME }}.fly.dev"
-          echo ""
-          echo "╔══════════════════════════════════════════════════════╗"
-          echo "║         🎉 ESN Manager est en ligne !                ║"
-          echo "╠══════════════════════════════════════════════════════╣"
-          echo "║  🌐 URL      : $APP_URL"
-          echo "║  📊 Dashboard: https://fly.io/apps/${{ env.APP_NAME }}"
-          echo "╠══════════════════════════════════════════════════════╣"
-          echo "║  Comptes de démonstration :                          ║"
-          echo "║  👔 Admin      : admin@mon-esn.fr / admin1234        ║"
-          echo "║  💼 Consultant : jean.dupont@mon-esn.fr / jean1234   ║"
-          echo "╚══════════════════════════════════════════════════════╝"
-          echo ""
-          echo "👉 Ouvrez : $APP_URL"
-
-          # Vérifier que l'app répond
-          sleep 10
-          HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$APP_URL/api/health" || echo "000")
-          if [ "$HTTP" = "200" ]; then
-            echo "✅ Health check OK ($HTTP)"
-          else
-            echo "⏳ L'app démarre encore (HTTP $HTTP) — attendez 1-2 min"
-          fi
+          echo "App URL: https://${{ env.APP_NAME }}.fly.dev"
+          echo "Dashboard: https://fly.io/apps/${{ env.APP_NAME }}"
