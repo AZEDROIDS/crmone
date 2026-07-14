@@ -23,14 +23,16 @@ jobs:
         uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Auth check
-        run: flyctl auth whoami
-
-      - name: Create app (idempotent)
         run: |
-          flyctl apps create ${{ env.APP_NAME }} --org personal 2>&1 \
-            | grep -v "already exists" || true
+          echo "Token prefix: ${FLY_API_TOKEN:0:10}..."
+          flyctl auth whoami
 
-      - name: Create PostgreSQL (idempotent)
+      - name: Create app
+        continue-on-error: true
+        run: flyctl apps create ${{ env.APP_NAME }} --org personal
+
+      - name: Create PostgreSQL DB
+        continue-on-error: true
         run: |
           flyctl postgres create \
             --name ${{ env.DB_NAME }} \
@@ -38,15 +40,15 @@ jobs:
             --vm-size shared-cpu-1x \
             --volume-size 3 \
             --initial-cluster-size 1 \
-            --yes 2>&1 | grep -v "already exists" || true
+            --yes
 
-      - name: Attach PostgreSQL (idempotent)
+      - name: Attach PostgreSQL
+        continue-on-error: true
         run: |
           flyctl postgres attach ${{ env.DB_NAME }} \
-            --app ${{ env.APP_NAME }} 2>&1 \
-            | grep -v "already attached" || true
+            --app ${{ env.APP_NAME }}
 
-      - name: Configure secrets
+      - name: Set secrets
         run: |
           flyctl secrets set \
             AUTH_SECRET="$(openssl rand -base64 32)" \
@@ -62,7 +64,8 @@ jobs:
             --region ${{ env.REGION }} \
             --strategy rolling \
             --wait-timeout 300 \
-            --remote-only
+            --remote-only \
+            --verbose
 
       - name: Run migrations
         run: |
@@ -72,16 +75,15 @@ jobs:
             --quiet
 
       - name: Seed demo data
+        continue-on-error: true
         run: |
           flyctl ssh console \
             --app ${{ env.APP_NAME }} \
             --command "cd /app && npx tsx db/seed.ts" \
-            --quiet || echo "Seed already done or skipped"
+            --quiet
 
-      - name: Done
+      - name: Summary
         run: |
-          echo ""
-          echo "✅ ESN Manager deployed!"
-          echo "🌐 https://${{ env.APP_NAME }}.fly.dev"
+          echo "✅ https://${{ env.APP_NAME }}.fly.dev"
           echo "👔 admin@mon-esn.fr / admin1234"
           echo "💼 jean.dupont@mon-esn.fr / jean1234"
