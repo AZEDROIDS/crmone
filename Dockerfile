@@ -5,22 +5,29 @@ LABEL fly_launch_runtime="Next.js"
 WORKDIR /app
 ENV NODE_ENV="production"
 
-# ── Build stage ──────────────────────────────────────────────────
+# ── Build stage ──────────────────────────────────────────────────────────────
 FROM base AS build
 RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y \
     build-essential node-gyp pkg-config python-is-python3 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY package.json package-lock.json* ./
+COPY package.json ./
 RUN npm install
 
 COPY . .
+
+# Variables fictives pour éviter les erreurs d'import pendant le build Next.js
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV SKIP_ENV_VALIDATION=1
+ENV DATABASE_URL="postgresql://build:build@localhost/build"
+ENV AUTH_SECRET="build-placeholder-32-chars-minimum"
+ENV NEXTAUTH_URL="http://localhost:3000"
+ENV NEXT_PUBLIC_APP_URL="http://localhost:3000"
+
 RUN npm run build
 
-# ── Runner stage ─────────────────────────────────────────────────
+# ── Runner stage ─────────────────────────────────────────────────────────────
 FROM base AS runner
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -34,10 +41,9 @@ COPY --from=build /app/public                                ./public
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static     ./.next/static
 
-# Fichiers nécessaires pour les migrations et le seed
-COPY --from=build /app/db                    ./db
-COPY --from=build /app/drizzle.config.ts     ./drizzle.config.ts
-COPY --from=build /app/node_modules          ./node_modules
+COPY --from=build /app/db             ./db
+COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
+COPY --from=build /app/node_modules   ./node_modules
 
 USER nextjs
 EXPOSE 3000
