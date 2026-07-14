@@ -1,6 +1,7 @@
 import type { NextConfig } from "next"
 
 const nextConfig: NextConfig = {
+  output: "standalone",           // requis pour Docker/Fly.io
   experimental: {
     serverActions: { allowedOrigins: ["*"] },
   },
