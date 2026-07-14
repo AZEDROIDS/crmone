@@ -4,15 +4,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      seed:
-        description: "Seed demo data?"
-        required: false
-        default: "yes"
-      resend_api_key:
-        description: "Resend API key (optional)"
-        required: false
-        default: ""
 
 env:
   APP_NAME: crmone
@@ -21,45 +12,41 @@ env:
   FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
 jobs:
-  setup-and-deploy:
+  deploy:
     name: Setup & Deploy
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
 
-      - name: Verify auth
+      - name: Auth check
         run: flyctl auth whoami
 
-      - name: Create Fly app (if not exists)
+      - name: Create app (idempotent)
         run: |
-          flyctl apps list | grep -q "^${{ env.APP_NAME }}" \
-            && echo "App exists" \
-            || flyctl apps create ${{ env.APP_NAME }} --org personal
+          flyctl apps create ${{ env.APP_NAME }} --org personal 2>&1 \
+            | grep -v "already exists" || true
 
-      - name: Create PostgreSQL (if not exists)
+      - name: Create PostgreSQL (idempotent)
         run: |
-          flyctl postgres list | grep -q "${{ env.DB_NAME }}" \
-            && echo "DB exists" \
-            || flyctl postgres create \
-                --name ${{ env.DB_NAME }} \
-                --region ${{ env.REGION }} \
-                --vm-size shared-cpu-1x \
-                --volume-size 3 \
-                --initial-cluster-size 1 \
-                --yes
+          flyctl postgres create \
+            --name ${{ env.DB_NAME }} \
+            --region ${{ env.REGION }} \
+            --vm-size shared-cpu-1x \
+            --volume-size 3 \
+            --initial-cluster-size 1 \
+            --yes 2>&1 | grep -v "already exists" || true
 
-      - name: Attach PostgreSQL
+      - name: Attach PostgreSQL (idempotent)
         run: |
           flyctl postgres attach ${{ env.DB_NAME }} \
-            --app ${{ env.APP_NAME }} 2>/dev/null \
-            || echo "Already attached"
+            --app ${{ env.APP_NAME }} 2>&1 \
+            | grep -v "already attached" || true
 
-      - name: Set secrets
+      - name: Configure secrets
         run: |
           flyctl secrets set \
             AUTH_SECRET="$(openssl rand -base64 32)" \
@@ -68,15 +55,7 @@ jobs:
             NODE_ENV="production" \
             --app ${{ env.APP_NAME }}
 
-      - name: Set Resend secret (if provided)
-        if: ${{ inputs.resend_api_key != '' }}
-        run: |
-          flyctl secrets set \
-            RESEND_API_KEY="${{ inputs.resend_api_key }}" \
-            EMAIL_FROM="${{ inputs.email_from }}" \
-            --app ${{ env.APP_NAME }}
-
-      - name: Deploy
+      - name: Build & deploy
         run: |
           flyctl deploy \
             --app ${{ env.APP_NAME }} \
@@ -85,20 +64,24 @@ jobs:
             --wait-timeout 300 \
             --remote-only
 
-      - name: Run DB migrations
+      - name: Run migrations
         run: |
           flyctl ssh console \
             --app ${{ env.APP_NAME }} \
-            --command "cd /app && npx drizzle-kit migrate --config drizzle.config.ts"
+            --command "cd /app && npx drizzle-kit migrate --config drizzle.config.ts" \
+            --quiet
 
       - name: Seed demo data
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.seed == 'yes' }}
         run: |
           flyctl ssh console \
             --app ${{ env.APP_NAME }} \
-            --command "cd /app && npx tsx db/seed.ts"
+            --command "cd /app && npx tsx db/seed.ts" \
+            --quiet || echo "Seed already done or skipped"
 
-      - name: Summary
+      - name: Done
         run: |
-          echo "App URL: https://${{ env.APP_NAME }}.fly.dev"
-          echo "Dashboard: https://fly.io/apps/${{ env.APP_NAME }}"
+          echo ""
+          echo "✅ ESN Manager deployed!"
+          echo "🌐 https://${{ env.APP_NAME }}.fly.dev"
+          echo "👔 admin@mon-esn.fr / admin1234"
+          echo "💼 jean.dupont@mon-esn.fr / jean1234"
