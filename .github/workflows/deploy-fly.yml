@@ -1,0 +1,44 @@
+name: 🔄 Deploy — Fly.io (auto)
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - ".env.example"
+
+env:
+  APP_NAME: esn-manager
+  FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+jobs:
+  deploy:
+    name: Déploiement automatique
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 🛠️ Installer flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: 🚀 Déployer
+        run: |
+          flyctl deploy \
+            --app ${{ env.APP_NAME }} \
+            --strategy rolling \
+            --wait-timeout 300 \
+            --remote-only
+
+      - name: 🗃️ Migrations
+        run: |
+          flyctl ssh console \
+            --app ${{ env.APP_NAME }} \
+            --command "cd /app && npx drizzle-kit migrate --config drizzle.config.ts"
+
+      - name: ✅ Health check
+        run: |
+          sleep 15
+          curl -f "https://${{ env.APP_NAME }}.fly.dev/api/health" \
+            && echo "✅ App en ligne" \
+            || echo "⏳ Démarrage en cours"
