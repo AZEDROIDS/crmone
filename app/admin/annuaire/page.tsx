@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 import { db } from "@/db"
 import { AnnuaireClient } from "@/components/admin/annuaire-client"
 

@@ -1,3 +1,4 @@
+export const runtime = "nodejs"
 import { NextRequest } from "next/server"
 import { db } from "@/db"
 import { factures, cra, craJours, consultants } from "@/db/schema"

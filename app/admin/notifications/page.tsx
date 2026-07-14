@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 import { db } from "@/db"
 import { consultants, cra } from "@/db/schema"
 import { eq } from "drizzle-orm"

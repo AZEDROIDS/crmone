@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 import { db } from "@/db"
 import { factures } from "@/db/schema"
 import { moisLabel, fmtEur, fmtDate } from "@/lib/utils"
