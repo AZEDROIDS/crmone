@@ -13,8 +13,7 @@ RUN apt-get update -qq && \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json ./
-# CRITIQUE: --include=dev car NODE_ENV=production fait sauter les devDependencies
-# (TypeScript, Tailwind, types sont REQUIS pour next build)
+# --include=dev : NODE_ENV=production ferait sauter TypeScript/Tailwind requis au build
 RUN npm install --include=dev
 
 COPY . .
@@ -26,23 +25,29 @@ ENV NEXT_PUBLIC_APP_URL="http://localhost:3000"
 ENV AUTH_SECRET="build-placeholder-not-used-at-runtime"
 RUN npm run build
 
-# Retirer les devDependencies après le build pour alléger l'image
-RUN npm prune --omit=dev
-
 # ── Runner stage ──────────────────────────────────────────────────────────────
 FROM base AS runner
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
+
 RUN addgroup --system --gid 1001 nodejs \
  && adduser  --system --uid 1001 nextjs
-COPY --from=build /app/public                                ./public
+
+# standalone contient server.js + node_modules minimaux auto-tracés par Next.js
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static     ./.next/static
-COPY --from=build /app/db                ./db
-COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
-COPY --from=build /app/node_modules      ./node_modules
+COPY --from=build --chown=nextjs:nodejs /app/public           ./public
+
+# Migrations : schema + config + le CLI drizzle-kit uniquement
+COPY --from=build --chown=nextjs:nodejs /app/db                ./db
+COPY --from=build --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.config.ts
+COPY --from=build --chown=nextjs:nodejs /app/node_modules/drizzle-kit  ./node_modules/drizzle-kit
+COPY --from=build --chown=nextjs:nodejs /app/node_modules/drizzle-orm  ./node_modules/drizzle-orm
+COPY --from=build --chown=nextjs:nodejs /app/node_modules/tsx          ./node_modules/tsx
+COPY --from=build --chown=nextjs:nodejs /app/node_modules/.bin         ./node_modules/.bin
+
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]
