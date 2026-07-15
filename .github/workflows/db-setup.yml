@@ -1,0 +1,123 @@
+name: 🗄️ Database Setup — crmone
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Injecter les données de démonstration ?"
+        required: true
+        default: "oui"
+        type: choice
+        options: ["oui", "non"]
+
+env:
+  APP_NAME: crmone
+  DB_NAME:  crmone-db
+  REGION:   lhr
+  FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+jobs:
+  db-setup:
+    name: Créer et initialiser la base PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Créer PostgreSQL (si absent)
+        run: |
+          if flyctl postgres list | grep -q "${{ env.DB_NAME }}"; then
+            echo "✅ Base '${{ env.DB_NAME }}' déjà existante"
+          else
+            flyctl postgres create \
+              --name ${{ env.DB_NAME }} \
+              --region ${{ env.REGION }} \
+              --vm-size shared-cpu-1x \
+              --volume-size 3 \
+              --initial-cluster-size 1
+            echo "✅ Base PostgreSQL créée"
+          fi
+
+      - name: Attacher la base à crmone
+        run: |
+          flyctl postgres attach ${{ env.DB_NAME }} --app ${{ env.APP_NAME }} --yes \
+            && echo "✅ Attachée (DATABASE_URL définie sur crmone)" \
+            || echo "⚠️ Déjà attachée — on continue"
+
+      - name: Configurer les secrets applicatifs
+        run: |
+          AUTH_SECRET=$(openssl rand -base64 32)
+          APP_URL="https://${{ env.APP_NAME }}.fly.dev"
+          # --stage : n'applique qu'au prochain deploy... on veut immédiat → sans --stage
+          flyctl secrets set \
+            AUTH_SECRET="$AUTH_SECRET" \
+            NEXTAUTH_URL="$APP_URL" \
+            NEXT_PUBLIC_APP_URL="$APP_URL" \
+            --app ${{ env.APP_NAME }} || echo "Secrets déjà à jour"
+          echo "✅ Secrets configurés"
+
+      - name: Récupérer DATABASE_URL depuis la machine
+        id: dburl
+        run: |
+          # Attendre que la machine redémarre après le set secrets
+          sleep 20
+          DB_URL=$(flyctl ssh console --app ${{ env.APP_NAME }} --command "printenv DATABASE_URL" | tr -d '\r\n')
+          if [ -z "$DB_URL" ]; then
+            echo "❌ DATABASE_URL introuvable sur la machine"
+            exit 1
+          fi
+          echo "::add-mask::$DB_URL"
+          echo "db_url=$DB_URL" >> $GITHUB_OUTPUT
+          echo "✅ DATABASE_URL récupérée"
+
+      - name: Ouvrir le proxy vers PostgreSQL
+        run: |
+          flyctl proxy 15432:5432 --app ${{ env.DB_NAME }} &
+          echo $! > /tmp/proxy.pid
+          sleep 8
+          echo "✅ Proxy localhost:15432 → ${{ env.DB_NAME }}:5432"
+
+      - name: Installer les dépendances
+        run: npm install --include=dev
+
+      - name: Pousser le schéma (8 tables)
+        run: |
+          # Réécrire l'URL pour passer par le proxy local
+          LOCAL_URL=$(echo "${{ steps.dburl.outputs.db_url }}" | sed -E 's|@[^/]+/|@localhost:15432/|')
+          echo "::add-mask::$LOCAL_URL"
+          DATABASE_URL="$LOCAL_URL" npx drizzle-kit push --force
+          echo "✅ Schéma poussé : users, sessions, partenaires, clients, consultants, cra, cra_jours, justificatifs, factures"
+
+      - name: Injecter les données de démonstration
+        if: ${{ inputs.seed == 'oui' }}
+        run: |
+          LOCAL_URL=$(echo "${{ steps.dburl.outputs.db_url }}" | sed -E 's|@[^/]+/|@localhost:15432/|')
+          echo "::add-mask::$LOCAL_URL"
+          DATABASE_URL="$LOCAL_URL" npx tsx db/seed.ts
+          echo "✅ Données de démonstration injectées"
+
+      - name: Redémarrer l'application
+        run: |
+          flyctl apps restart ${{ env.APP_NAME }} || true
+          sleep 25
+
+      - name: Vérification finale
+        run: |
+          HEALTH=$(curl -s "https://${{ env.APP_NAME }}.fly.dev/api/health")
+          echo "Health: $HEALTH"
+          echo "$HEALTH" | grep -q '"db":"connected"' \
+            && echo "🎉 BASE DE DONNÉES CONNECTÉE !" \
+            || echo "⏳ DB pas encore connectée — vérifiez dans 1 min"
+          echo ""
+          echo "╔═══════════════════════════════════════════════╗"
+          echo "║  🌐 https://${{ env.APP_NAME }}.fly.dev"
+          echo "║  👔 Admin      : admin@mon-esn.fr / admin1234"
+          echo "║  💼 Consultant : jean.dupont@mon-esn.fr / jean1234"
+          echo "╚═══════════════════════════════════════════════╝"

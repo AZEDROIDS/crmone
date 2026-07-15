@@ -1,5 +1,5 @@
-import { drizzle } from "drizzle-orm/neon-serverless"
-import { Pool } from "@neondatabase/serverless"
+import { drizzle } from "drizzle-orm/node-postgres"
+import { Pool } from "pg"
 import * as schema from "./schema"
 
 const globalForDb = globalThis as unknown as { pool: Pool | undefined }
@@ -7,12 +7,17 @@ const globalForDb = globalThis as unknown as { pool: Pool | undefined }
 function makePool(): Pool {
   const url = process.env.DATABASE_URL
   if (!url) {
-    throw new Error("DATABASE_URL non configurée — attachez une base PostgreSQL (fly postgres attach)")
+    throw new Error("DATABASE_URL non configurée — attachez une base PostgreSQL")
   }
-  return new Pool({ connectionString: url })
+  return new Pool({
+    connectionString: url,
+    // Fly Postgres interne : pas de SSL ; Neon/externe : SSL requis
+    ssl: url.includes(".flycast") || url.includes(".internal") || url.includes("localhost")
+      ? false
+      : { rejectUnauthorized: false },
+  })
 }
 
-// Lazy init via Proxy : le pool n'est créé qu'au premier accès réel
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null
 
 export const db = new Proxy({} as ReturnType<typeof drizzle<typeof schema>>, {
