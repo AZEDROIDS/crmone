@@ -11,8 +11,12 @@ RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y \
     build-essential node-gyp pkg-config python-is-python3 \
     && rm -rf /var/lib/apt/lists/*
+
 COPY package.json ./
-RUN npm install
+# CRITIQUE: --include=dev car NODE_ENV=production fait sauter les devDependencies
+# (TypeScript, Tailwind, types sont REQUIS pour next build)
+RUN npm install --include=dev
+
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV SKIP_ENV_VALIDATION=1
@@ -21,6 +25,9 @@ ENV NEXTAUTH_URL="http://localhost:3000"
 ENV NEXT_PUBLIC_APP_URL="http://localhost:3000"
 ENV AUTH_SECRET="build-placeholder-not-used-at-runtime"
 RUN npm run build
+
+# Retirer les devDependencies après le build pour alléger l'image
+RUN npm prune --omit=dev
 
 # ── Runner stage ──────────────────────────────────────────────────────────────
 FROM base AS runner

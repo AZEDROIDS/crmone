@@ -2,9 +2,13 @@ import type { NextConfig } from "next"
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  optimizeFonts: false,   // ← désactive le téléchargement de fonts au build
+  optimizeFonts: false,
   webpack: (config) => {
-    config.resolve.alias.canvas = false
+    // Modules optionnels de jsPDF non utilisés (PDF programmatique uniquement)
+    config.resolve.alias.canvas      = false
+    config.resolve.alias.html2canvas = false
+    config.resolve.alias.dompurify   = false
+    config.resolve.alias.canvg       = false
     return config
   },
 }
