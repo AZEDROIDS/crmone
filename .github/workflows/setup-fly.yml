@@ -60,19 +60,24 @@ jobs:
       - name: Docker build (diagnostic)
         id: docker_build
         run: |
-          echo "=== DOCKER BUILD START ==="
-          docker build . \
-            --build-arg NODE_VERSION=22.21.1 \
-            --progress=plain \
-            -t crmone-test 2>&1 | tee /tmp/docker-build.log || true
-          BUILD_EXIT=${PIPESTATUS[0]}
-          echo "=== LAST 100 LINES ==="
-          tail -100 /tmp/docker-build.log
-          if [ $BUILD_EXIT -ne 0 ]; then
-            echo "::error title=Docker Build Failed::$(tail -30 /tmp/docker-build.log | tr '\n' '|')"
-            exit $BUILD_EXIT
+          echo "=== STARTING DOCKER BUILD ==="
+          docker build . --progress=plain -t crmone-test 2>&1 | tee /tmp/docker-build.log || true
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo ""
+          echo "=== LAST 150 LINES ==="
+          tail -150 /tmp/docker-build.log
+          if [ $EXIT_CODE -ne 0 ]; then
+            exit $EXIT_CODE
           fi
-          echo "::notice::Docker build SUCCESS ✅"
+          echo "BUILD SUCCESS ✅"
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-build-logs
+          path: /tmp/docker-build.log
+          retention-days: 5
 
 
       - name: Upload build logs
