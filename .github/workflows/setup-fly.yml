@@ -60,14 +60,19 @@ jobs:
       - name: Docker build (diagnostic)
         id: docker_build
         run: |
-          docker build . -t crmone-test 2>&1 | tee /tmp/docker-build.log
+          echo "=== DOCKER BUILD START ==="
+          docker build . \
+            --build-arg NODE_VERSION=22.21.1 \
+            --progress=plain \
+            -t crmone-test 2>&1 | tee /tmp/docker-build.log || true
           BUILD_EXIT=${PIPESTATUS[0]}
+          echo "=== LAST 100 LINES ==="
+          tail -100 /tmp/docker-build.log
           if [ $BUILD_EXIT -ne 0 ]; then
-            echo "::error title=Docker Build Failed::$(tail -20 /tmp/docker-build.log | tr '\n' '|')"
-            cat /tmp/docker-build.log
+            echo "::error title=Docker Build Failed::$(tail -30 /tmp/docker-build.log | tr '\n' '|')"
             exit $BUILD_EXIT
           fi
-          echo "::notice::Docker build SUCCESS"
+          echo "::notice::Docker build SUCCESS ✅"
 
       - name: Deploy to Fly.io
         run: |
