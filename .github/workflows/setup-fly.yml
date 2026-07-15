@@ -60,14 +60,21 @@ jobs:
       - name: Docker build (diagnostic)
         id: docker_build
         run: |
-          echo "=== STARTING DOCKER BUILD ==="
           docker build . --progress=plain -t crmone-test 2>&1 | tee /tmp/docker-build.log || true
           EXIT_CODE=${PIPESTATUS[0]}
-          echo ""
-          echo "=== LAST 150 LINES ==="
-          tail -150 /tmp/docker-build.log
-          if [ $EXIT_CODE -ne 0 ]; then
-            exit $EXIT_CODE
+          
+          # Écrire le résumé dans le job summary (visible dans l'UI GitHub Actions)
+          echo "## Docker Build Log" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -200 /tmp/docker-build.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          
+          # Aussi via ::error pour les annotations
+          ERRS=$(grep -E "(Error|error TS|Cannot|Module not found|npm ERR)" /tmp/docker-build.log | tail -20 || true)
+          echo "::error title=Docker Build Errors::${ERRS}"
+          
+          tail -50 /tmp/docker-build.log
+          exit $EXIT_CODE
           fi
           echo "BUILD SUCCESS ✅"
 
