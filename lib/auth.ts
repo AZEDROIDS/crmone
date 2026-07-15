@@ -62,6 +62,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     error:  "/auth/login",
   },
   session: { strategy: "jwt" },
+  trustHost: true,   // requis derrière le proxy Fly.io
   secret: process.env.AUTH_SECRET,
 })
 

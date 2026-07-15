@@ -2,21 +2,27 @@ import { drizzle } from "drizzle-orm/neon-serverless"
 import { Pool } from "@neondatabase/serverless"
 import * as schema from "./schema"
 
-let _db: ReturnType<typeof drizzle> | null = null
+const globalForDb = globalThis as unknown as { pool: Pool | undefined }
 
-export function getDb() {
-  if (_db) return _db
+function makePool(): Pool {
   const url = process.env.DATABASE_URL
-  if (!url) throw new Error("DATABASE_URL is not set")
-  const pool = new Pool({ connectionString: url })
-  _db = drizzle(pool, { schema, logger: process.env.NODE_ENV === "development" })
-  return _db
+  if (!url) {
+    throw new Error("DATABASE_URL non configurée — attachez une base PostgreSQL (fly postgres attach)")
+  }
+  return new Pool({ connectionString: url })
 }
 
-// Export db as a proxy so existing code works without change
-export const db = new Proxy({} as ReturnType<typeof drizzle>, {
+// Lazy init via Proxy : le pool n'est créé qu'au premier accès réel
+let _db: ReturnType<typeof drizzle<typeof schema>> | null = null
+
+export const db = new Proxy({} as ReturnType<typeof drizzle<typeof schema>>, {
   get(_target, prop) {
-    return (getDb() as any)[prop]
+    if (!_db) {
+      const pool = globalForDb.pool ?? makePool()
+      if (process.env.NODE_ENV !== "production") globalForDb.pool = pool
+      _db = drizzle(pool, { schema })
+    }
+    return (_db as any)[prop]
   },
 })
 
