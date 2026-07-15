@@ -88,6 +88,19 @@ jobs:
           path: /tmp/docker-build.log
           retention-days: 1
 
+      - name: Commit build errors to repo
+        if: failure()
+        run: |
+          git config user.email "ci@github.com"
+          git config user.name "GitHub CI"
+          tail -200 /tmp/docker-build.log > /tmp/errors.txt || echo "No log" > /tmp/errors.txt
+          # Écrire dans un fichier visible
+          mkdir -p build-debug
+          cp /tmp/errors.txt build-debug/last-build-error.txt
+          git add build-debug/
+          git commit -m "debug: Docker build error log [skip ci]" || true
+          git push origin HEAD:main || true
+
       - name: Deploy to Fly.io
         run: |
           flyctl deploy \
